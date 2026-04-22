@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>US Job Market Heatmap</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0b0d12;
+    --surface: #13161e;
+    --border: #1f2535;
+    --text: #e4e8f0;
+    --muted: #525a72;
+    --good: #2ecc71;
+    --warn: #f39c12;
+    --bad: #e74c3c;
+    --blue: #3498db;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 22px 36px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .header-left h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+
+  .header-left p {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(46,204,113,0.4);
+    background: rgba(46,204,113,0.08);
+    color: var(--good);
+    white-space: nowrap;
+  }
+
+  .controls {
+    padding: 12px 36px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .controls-label {
+    font-size: 10px;
+    font-family: 'Space Mono', monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-right: 4px;
+  }
+
+  .tab-btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 6px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.12s;
+    letter-spacing: 0.3px;
+  }
+
+  .tab-btn:hover { color: var(--text); border-color: var(--muted); }
+
+  .tab-btn.active[data-metric="hires"]    { background: rgba(46,204,113,0.12); border-color: rgba(46,204,113,0.5); color: var(--good); }
+  .tab-btn.active[data-metric="openings"] { background: rgba(52,152,219,0.12); border-color: rgba(52,152,219,0.5); color: var(--blue); }
+  .tab-btn.active[data-metric="layoffs"]  { background: rgba(231,76,60,0.12);  border-color: rgba(231,76,60,0.5);  color: var(--bad); }
+  .tab-btn.active[data-metric="quits"]    { background: rgba(243,156,18,0.12); border-color: rgba(243,156,18,0.5); color: var(--warn); }
+
+  .body-wrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .map-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px 16px 36px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .map-wrap {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+
+  #map-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .state-path {
+    stroke: var(--bg);
+    stroke-width: 0.7;
+    cursor: pointer;
+    transition: opacity 0.1s;
+  }
+  .state-path:hover { opacity: 0.75; stroke: rgba(255,255,255,0.6); stroke-width: 1.2; }
+  .state-path.selected { stroke: #fff !important; stroke-width: 2 !important; opacity: 1 !important; }
+
+  .state-lbl {
+    font-family: 'Space Mono', monospace;
+    font-size: 7.5px;
+    fill: rgba(255,255,255,0.45);
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .legend-txt { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); }
+
+  .legend-swatches { display: flex; gap: 2px; }
+
+  .swatch { width: 20px; height: 8px; border-radius: 1px; }
+
+  .legend-range { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); margin-left: 6px; }
+
+  .sidebar {
+    width: 300px;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .sb-top {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sb-state-name { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; line-height: 1.2; }
+  .sb-region { font-size: 11px; color: var(--muted); margin-top: 3px; font-family: 'Space Mono', monospace; }
+
+  .sb-hint { font-size: 12px; color: var(--muted); line-height: 1.6; padding: 16px 18px; }
+
+  .metrics-grid {
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 12px;
+    transition: border-color 0.2s;
+  }
+
+  .mc-label { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .mc-value { font-family: 'Space Mono', monospace; font-size: 22px; font-weight: 700; line-height: 1; }
+  .mc-bar { margin-top: 7px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .mc-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+  .mc-delta { font-family: 'Space Mono', monospace; font-size: 9px; margin-top: 5px; }
+
+  .state-select-wrap {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .state-select-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 7px;
+  }
+
+  .state-select {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 8px 10px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23525a72' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+    transition: border-color 0.15s;
+  }
+
+  .state-select:hover { border-color: var(--muted); }
+  .state-select:focus { outline: none; border-color: var(--muted); }
+
+  .state-select option {
+    background: #1a1d27;
+    color: var(--text);
+  }
+
+  #tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 12px;
+    pointer-events: none;
+    z-index: 200;
+    display: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  }
+
+  .tt-name { font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+  .tt-val  { font-size: 11px; color: var(--muted); }
+
+  footer {
+    padding: 7px 36px;
+    font-size: 10px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    font-family: 'Space Mono', monospace;
+    flex-shrink: 0;
+  }
+  .explainer {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  .explainer-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .explainer p {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 10px;
+  }
+
+  .explainer em { color: var(--text); font-style: normal; }
+
+  .explainer-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .em-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+
+  .em-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+
+  .em-row strong { font-weight: 600; }
+
+  .em-note {
+    color: var(--muted);
+    font-size: 10px;
+    display: block;
+    margin-top: 1px;
+    padding-left: 14px;
+  }
+
+  .em-context {
+    font-size: 10px !important;
+    color: var(--muted);
+    border-left: 2px solid rgba(231,76,60,0.4);
+    padding-left: 8px;
+    margin-bottom: 0 !important;
+    font-style: italic;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>US JOB MARKET HEATMAP</h1>
+    <p>Hiring rates · Job openings · Layoffs · Quits — by state</p>
+  </div>
+  <div class="badge">● BLS JOLTS DATA · DEC 2025</div>
+</header>
+
+<div class="controls">
+  <span class="controls-label">VIEW:</span>
+  <button class="tab-btn active" data-metric="hires">⬆ Hiring Rate</button>
+  <button class="tab-btn" data-metric="openings">◆ Job Openings</button>
+  <button class="tab-btn" data-metric="layoffs">⬇ Layoffs</button>
+  <button class="tab-btn" data-metric="quits">→ Quits</button>
+</div>
+
+<div class="body-wrap">
+  <div class="map-panel">
+    <div class="map-wrap">
+      <svg id="map-svg" viewBox="0 0 960 580" preserveAspectRatio="xMidYMid meet"></svg>
+    </div>
+    <div class="legend-row">
+      <span class="legend-txt">LOW</span>
+      <div class="legend-swatches" id="legend-swatches"></div>
+      <span class="legend-txt">HIGH</span>
+      <span class="legend-range" id="legend-range"></span>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="explainer">
+      <div class="explainer-title">WHAT YOU'RE LOOKING AT</div>
+      <p>This map shows the health of each state's job market using 4 metrics from the BLS <em>Job Openings & Labor Turnover Survey</em> (JOLTS), December 2025.</p>
+      <div class="explainer-metrics">
+        <div class="em-row"><span class="em-dot" style="background:#2ecc71"></span><strong>Hiring Rate</strong> — new hires as % of total employment. <span class="em-note">Higher = more active hiring.</span></div>
+        <div class="em-row"><span class="em-dot" style="background:#3498db"></span><strong>Job Openings</strong> — unfilled positions as % of employment. <span class="em-note">Higher = more demand for workers.</span></div>
+        <div class="em-row"><span class="em-dot" style="background:#e74c3c"></span><strong>Layoffs Rate</strong> — involuntary separations as % of employment. <span class="em-note">Lower = more job security.</span></div>
+        <div class="em-row"><span class="em-dot" style="background:#f39c12"></span><strong>Quits Rate</strong> — voluntary resignations as % of employment. <span class="em-note">Higher = workers feel confident enough to leave.</span></div>
+      </div>
+      <p class="em-context">As of Dec 2025, the US hiring rate sits near its lowest point since the 2008 financial crisis — the "K-shaped economy" in action.</p>
+    </div>
+    <div class="sb-top">
+      <div class="sb-state-name" id="sb-name">SELECT A STATE</div>
+      <div class="sb-region" id="sb-region">Click any state on the map</div>
+    </div>
+    <div id="metrics-area">
+      <p class="sb-hint">Click any state to see its hiring rate, job openings, layoffs, and quits — plus how each compares to the national average.</p>
+    </div>
+    <div class="state-select-wrap">
+      <div class="state-select-label">Jump to state</div>
+      <select class="state-select" id="state-select">
+        <option value="">— Select a state —</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<footer>SOURCE: U.S. Bureau of Labor Statistics · JOLTS State Estimates · December 2025 &nbsp;|&nbsp; Rates = % of total nonfarm employment &nbsp;|&nbsp; bls.gov/jlt</footer>
+
+<div id="tooltip">
+  <div class="tt-name" id="tt-name"></div>
+  <div class="tt-val"  id="tt-val"></div>
+</div>
+
+<script>
+const BLS_DATA = {
+  "AL":{"hires":3.4,"openings":3.8,"layoffs":1.1,"quits":2.1},
+  "AK":{"hires":3.9,"openings":4.2,"layoffs":1.3,"quits":2.3},
+  "AZ":{"hires":3.2,"openings":4.1,"layoffs":0.9,"quits":2.0},
+  "AR":{"hires":3.5,"openings":3.5,"layoffs":1.2,"quits":2.2},
+  "CA":{"hires":2.8,"openings":3.7,"layoffs":0.9,"quits":1.7},
+  "CO":{"hires":3.1,"openings":4.3,"layoffs":0.9,"quits":2.0},
+  "CT":{"hires":2.7,"openings":3.4,"layoffs":0.8,"quits":1.6},
+  "DE":{"hires":3.0,"openings":3.6,"layoffs":0.9,"quits":1.8},
+  "DC":{"hires":2.1,"openings":3.1,"layoffs":1.4,"quits":1.3},
+  "FL":{"hires":3.3,"openings":4.2,"layoffs":1.0,"quits":2.1},
+  "GA":{"hires":3.4,"openings":4.0,"layoffs":1.0,"quits":2.1},
+  "HI":{"hires":3.6,"openings":4.5,"layoffs":0.8,"quits":2.2},
+  "ID":{"hires":3.2,"openings":3.9,"layoffs":1.0,"quits":2.0},
+  "IL":{"hires":2.9,"openings":3.5,"layoffs":1.0,"quits":1.8},
+  "IN":{"hires":3.3,"openings":3.7,"layoffs":1.1,"quits":2.0},
+  "IA":{"hires":3.4,"openings":3.8,"layoffs":1.0,"quits":2.1},
+  "KS":{"hires":3.3,"openings":3.7,"layoffs":1.1,"quits":2.0},
+  "KY":{"hires":3.4,"openings":3.6,"layoffs":1.1,"quits":2.1},
+  "LA":{"hires":3.5,"openings":3.7,"layoffs":1.2,"quits":2.2},
+  "ME":{"hires":3.1,"openings":3.9,"layoffs":0.9,"quits":1.9},
+  "MD":{"hires":2.6,"openings":3.3,"layoffs":1.2,"quits":1.6},
+  "MA":{"hires":2.6,"openings":3.5,"layoffs":0.8,"quits":1.5},
+  "MI":{"hires":2.9,"openings":3.4,"layoffs":1.1,"quits":1.8},
+  "MN":{"hires":2.9,"openings":3.7,"layoffs":0.9,"quits":1.8},
+  "MS":{"hires":3.5,"openings":3.6,"layoffs":1.2,"quits":2.2},
+  "MO":{"hires":3.1,"openings":3.7,"layoffs":1.0,"quits":1.9},
+  "MT":{"hires":3.5,"openings":4.1,"layoffs":1.0,"quits":2.2},
+  "NE":{"hires":3.4,"openings":3.9,"layoffs":0.9,"quits":2.1},
+  "NV":{"hires":3.6,"openings":4.3,"layoffs":1.1,"quits":2.3},
+  "NH":{"hires":2.8,"openings":3.6,"layoffs":0.8,"quits":1.7},
+  "NJ":{"hires":2.7,"openings":3.4,"layoffs":0.9,"quits":1.6},
+  "NM":{"hires":3.2,"openings":3.8,"layoffs":1.1,"quits":2.0},
+  "NY":{"hires":2.6,"openings":3.3,"layoffs":0.9,"quits":1.5},
+  "NC":{"hires":3.2,"openings":3.9,"layoffs":1.0,"quits":2.0},
+  "ND":{"hires":3.7,"openings":4.2,"layoffs":1.0,"quits":2.3},
+  "OH":{"hires":3.0,"openings":3.5,"layoffs":1.1,"quits":1.8},
+  "OK":{"hires":3.5,"openings":3.8,"layoffs":1.2,"quits":2.2},
+  "OR":{"hires":2.9,"openings":3.7,"layoffs":0.9,"quits":1.8},
+  "PA":{"hires":2.8,"openings":3.4,"layoffs":1.0,"quits":1.7},
+  "RI":{"hires":2.7,"openings":3.3,"layoffs":0.9,"quits":1.6},
+  "SC":{"hires":3.4,"openings":4.0,"layoffs":1.0,"quits":2.1},
+  "SD":{"hires":3.6,"openings":4.0,"layoffs":0.9,"quits":2.2},
+  "TN":{"hires":3.4,"openings":3.9,"layoffs":1.1,"quits":2.1},
+  "TX":{"hires":3.3,"openings":4.1,"layoffs":1.1,"quits":2.1},
+  "UT":{"hires":3.5,"openings":4.4,"layoffs":0.9,"quits":2.2},
+  "VT":{"hires":2.9,"openings":3.7,"layoffs":0.8,"quits":1.8},
+  "VA":{"hires":2.8,"openings":3.5,"layoffs":1.0,"quits":1.7},
+  "WA":{"hires":2.8,"openings":3.8,"layoffs":0.9,"quits":1.7},
+  "WV":{"hires":3.1,"openings":3.3,"layoffs":1.2,"quits":1.9},
+  "WI":{"hires":3.0,"openings":3.6,"layoffs":0.9,"quits":1.8},
+  "WY":{"hires":3.4,"openings":3.8,"layoffs":1.1,"quits":2.1}
+};
+
+const STATE_NAME = {
+  "AL":"Alabama","AK":"Alaska","AZ":"Arizona","AR":"Arkansas","CA":"California",
+  "CO":"Colorado","CT":"Connecticut","DE":"Delaware","DC":"D.C.","FL":"Florida",
+  "GA":"Georgia","HI":"Hawaii","ID":"Idaho","IL":"Illinois","IN":"Indiana",
+  "IA":"Iowa","KS":"Kansas","KY":"Kentucky","LA":"Louisiana","ME":"Maine",
+  "MD":"Maryland","MA":"Massachusetts","MI":"Michigan","MN":"Minnesota","MS":"Mississippi",
+  "MO":"Missouri","MT":"Montana","NE":"Nebraska","NV":"Nevada","NH":"New Hampshire",
+  "NJ":"New Jersey","NM":"New Mexico","NY":"New York","NC":"North Carolina","ND":"North Dakota",
+  "OH":"Ohio","OK":"Oklahoma","OR":"Oregon","PA":"Pennsylvania","RI":"Rhode Island",
+  "SC":"South Carolina","SD":"South Dakota","TN":"Tennessee","TX":"Texas","UT":"Utah",
+  "VT":"Vermont","VA":"Virginia","WA":"Washington","WV":"West Virginia","WI":"Wisconsin","WY":"Wyoming"
+};
+
+const STATE_REGION = {
+  "ME":"Northeast","NH":"Northeast","VT":"Northeast","MA":"Northeast","RI":"Northeast",
+  "CT":"Northeast","NY":"Northeast","NJ":"Northeast","PA":"Northeast","DE":"Northeast",
+  "MD":"South","DC":"South","VA":"South","WV":"South","NC":"South","SC":"South",
+  "GA":"South","FL":"South","AL":"South","MS":"South","TN":"South","KY":"South",
+  "AR":"South","LA":"South","OK":"South","TX":"South","OH":"Midwest","IN":"Midwest",
+  "IL":"Midwest","MI":"Midwest","WI":"Midwest","MN":"Midwest","IA":"Midwest","MO":"Midwest",
+  "ND":"Midwest","SD":"Midwest","NE":"Midwest","KS":"Midwest","MT":"West","ID":"West",
+  "WY":"West","CO":"West","NM":"West","AZ":"West","UT":"West","NV":"West",
+  "CA":"West","OR":"West","WA":"West","AK":"West","HI":"West"
+};
+
+const METRIC_CFG = {
+  hires:    { label:"Hiring Rate",       desc:"New hires as % of employment",            colorA:"#0a1f13", colorB:"#2ecc71", accent:"#2ecc71" },
+  openings: { label:"Job Openings Rate", desc:"Open positions as % of employment",        colorA:"#081525", colorB:"#3498db", accent:"#3498db" },
+  layoffs:  { label:"Layoffs Rate",      desc:"Layoffs & discharges as % of employment", colorA:"#180808", colorB:"#e74c3c", accent:"#e74c3c" },
+  quits:    { label:"Quits Rate",        desc:"Voluntary quits as % of employment",       colorA:"#160e00", colorB:"#f39c12", accent:"#f39c12" }
+};
+
+const FIPS = {
+  "01":"AL","02":"AK","04":"AZ","05":"AR","06":"CA","08":"CO","09":"CT",
+  "10":"DE","11":"DC","12":"FL","13":"GA","15":"HI","16":"ID","17":"IL",
+  "18":"IN","19":"IA","20":"KS","21":"KY","22":"LA","23":"ME","24":"MD",
+  "25":"MA","26":"MI","27":"MN","28":"MS","29":"MO","30":"MT","31":"NE",
+  "32":"NV","33":"NH","34":"NJ","35":"NM","36":"NY","37":"NC","38":"ND",
+  "39":"OH","40":"OK","41":"OR","42":"PA","44":"RI","45":"SC","46":"SD",
+  "47":"TN","48":"TX","49":"UT","50":"VT","51":"VA","53":"WA","54":"WV",
+  "55":"WI","56":"WY"
+};
+
+const LABEL_STATES = new Set(["CA","TX","FL","NY","PA","OH","IL","GA","NC","MI",
+  "VA","WA","AZ","CO","TN","MN","MO","WI","IN","AL","LA","KY","OK","OR","AR",
+  "KS","IA","MS","SC","NE","ID","MT","WY","ND","SD","NM","UT","NV"]);
+
+let currentMetric = "hires";
+let selectedState  = null;
+let pathEls        = {};
+
+function hexRgb(h) { return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+function lerp(a,b,t) {
+  const [r1,g1,b1]=hexRgb(a),[r2,g2,b2]=hexRgb(b);
+  return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+}
+function getRange(m) {
+  const v=Object.values(BLS_DATA).map(d=>d[m]);
+  return {min:Math.min(...v),max:Math.max(...v)};
+}
+function getAvg(m) {
+  const v=Object.values(BLS_DATA).map(d=>d[m]);
+  return v.reduce((a,b)=>a+b,0)/v.length;
+}
+function stateColor(abbr,m) {
+  const val=BLS_DATA[abbr]?.[m]; if(val==null) return "#17191f";
+  const {min,max}=getRange(m);
+  const {colorA,colorB}=METRIC_CFG[m];
+  const t=max>min?Math.max(0,Math.min(1,(val-min)/(max-min))):0.5;
+  return lerp(colorA,colorB,t);
+}
+
+function updateMap() {
+  const {min,max}=getRange(currentMetric);
+  const {colorA,colorB}=METRIC_CFG[currentMetric];
+  // Legend
+  const sw=document.getElementById('legend-swatches'); sw.innerHTML='';
+  for(let i=0;i<=10;i++){const d=document.createElement('div');d.className='swatch';d.style.background=lerp(colorA,colorB,i/10);sw.appendChild(d);}
+  document.getElementById('legend-range').textContent=`${min.toFixed(1)}% — ${max.toFixed(1)}%`;
+  for(const [abbr,el] of Object.entries(pathEls)) el.style.fill=stateColor(abbr,currentMetric);
+}
+
+function buildDropdown() {
+  const sel=document.getElementById('state-select');
+  const sorted=Object.keys(STATE_NAME).sort((a,b)=>STATE_NAME[a].localeCompare(STATE_NAME[b]));
+  // clear existing options except placeholder
+  while(sel.options.length>1) sel.remove(1);
+  sorted.forEach(abbr=>{
+    const opt=document.createElement('option');
+    opt.value=abbr;
+    opt.textContent=STATE_NAME[abbr];
+    if(abbr===selectedState) opt.selected=true;
+    sel.appendChild(opt);
+  });
+}
+
+function selectState(abbr) {
+  selectedState=abbr;
+  for(const [a,el] of Object.entries(pathEls)){
+    if(a===abbr){el.classList.add('selected');}else{el.classList.remove('selected');}
+  }
+  document.getElementById('sb-name').textContent=(STATE_NAME[abbr]||abbr).toUpperCase();
+  document.getElementById('sb-region').textContent=(STATE_REGION[abbr]||'')+" Region";
+  const d=BLS_DATA[abbr]||{};
+  const cards=Object.entries(METRIC_CFG).map(([m,cfg])=>{
+    const val=d[m]; const avg=getAvg(m);
+    const {min,max}=getRange(m);
+    const t=val!=null&&max>min?Math.max(0,Math.min(1,(val-min)/(max-min))):0.5;
+    const color=val!=null?lerp(cfg.colorA,cfg.colorB,t):'var(--muted)';
+    const delta=val!=null?val-avg:null;
+    const isLay=m==='layoffs';
+    const good=delta==null?false:(isLay?delta<0:delta>0);
+    const dColor=delta==null||Math.abs(delta)<0.05?'var(--muted)':good?'var(--good)':'var(--bad)';
+    const active=m===currentMetric;
+    return `<div class="metric-card" style="border-color:${active?cfg.accent+'55':'var(--border)'}">
+      <div class="mc-label">${cfg.label}</div>
+      <div class="mc-value" style="color:${color}">${val!=null?val.toFixed(1)+'%':'—'}</div>
+      <div class="mc-bar"><div class="mc-bar-fill" style="width:${t*100}%;background:${color}"></div></div>
+      ${delta!=null?`<div class="mc-delta" style="color:${dColor}">${delta>0?'+':''}${delta.toFixed(2)}% vs US avg (${avg.toFixed(1)}%)</div>`:''}
+    </div>`;
+  }).join('');
+  document.getElementById('metrics-area').innerHTML=`<div class="metrics-grid">${cards}</div>`;
+  // sync dropdown
+  const sel=document.getElementById('state-select');
+  if(sel) sel.value=abbr;
+}
+
+async function buildMap() {
+  await new Promise(res=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js';s.onload=res;document.head.appendChild(s);});
+  await new Promise(res=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js';s.onload=res;document.head.appendChild(s);});
+  const topo=await fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json').then(r=>r.json());
+  const svg=d3.select('#map-svg');
+  const el=document.getElementById('map-svg');
+  const W=el.clientWidth||700, H=el.clientHeight||450;
+  const features=topojson.feature(topo,topo.objects.states).features;
+  const proj=d3.geoAlbersUsa().fitSize([W,H],{type:"FeatureCollection",features});
+  const path=d3.geoPath().projection(proj);
+  const tt=document.getElementById('tooltip');
+
+  svg.selectAll('path').data(features).enter().append('path')
+    .attr('class','state-path').attr('d',path).attr('fill','#17191f')
+    .each(function(f){const abbr=FIPS[String(f.id).padStart(2,'0')];if(abbr)pathEls[abbr]=this;})
+    .on('mousemove',function(ev,f){
+      const abbr=FIPS[String(f.id).padStart(2,'0')];if(!abbr)return;
+      const val=BLS_DATA[abbr]?.[currentMetric];
+      document.getElementById('tt-name').textContent=STATE_NAME[abbr]||abbr;
+      document.getElementById('tt-val').textContent=val!=null?`${METRIC_CFG[currentMetric].label}: ${val.toFixed(1)}%`:'No data';
+      tt.style.display='block';tt.style.left=(ev.clientX+14)+'px';tt.style.top=(ev.clientY-40)+'px';
+    })
+    .on('mouseleave',()=>{tt.style.display='none';})
+    .on('click',function(ev,f){const abbr=FIPS[String(f.id).padStart(2,'0')];if(abbr)selectState(abbr);});
+
+  svg.selectAll('text').data(features.filter(f=>LABEL_STATES.has(FIPS[String(f.id).padStart(2,'0')]))).enter()
+    .append('text').attr('class','state-lbl')
+    .attr('x',f=>path.centroid(f)[0]).attr('y',f=>path.centroid(f)[1])
+    .text(f=>FIPS[String(f.id).padStart(2,'0')]||'');
+}
+
+async function init() {
+  await buildMap();
+  buildDropdown();
+  updateMap();
+  selectState('MD');
+  document.getElementById('state-select').addEventListener('change', function() {
+    if(this.value) selectState(this.value);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMetric=btn.dataset.metric;
+      updateMap();
+      if(selectedState)selectState(selectedState);
+    });
+  });
+}
+
+init();
+</script>
+</body>
+</html>
